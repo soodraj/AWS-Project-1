@@ -1,0 +1,38 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: s3 bucket
+
+Parameters:
+  tiers:
+    Description: tier name
+    Type: String
+  appname:
+    Description: appname
+    Type: String
+
+
+Resources:
+  s3Bucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub ${tiers}-${appname}-bucket
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+
+  s3policy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      Description: access s3 bucket policy
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          -
+            Effect: "Allow"
+            Action:
+              - "s3:PutObject"
+            Resource: !Join ['/' ,[!GetAtt s3Bucket.Arn, "*"]]
+          -
+            Effect: "Allow"
+            Action: "s3:ListBucket"
+            Resource: !GetAtt s3Bucket.Arn
