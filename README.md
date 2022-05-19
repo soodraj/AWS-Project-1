@@ -15,4 +15,7 @@
 
 
 **Disaster Recovery Plan (High Level)**
+
+Documentation: https://aws.amazon.com/blogs/architecture/disaster-recovery-dr-architecture-on-aws-part-i-strategies-for-recovery-in-the-cloud/ 
+
 ![DR](https://user-images.githubusercontent.com/103620921/169332126-6a71b07f-2734-47e7-9037-e0428c9c2adb.JPG)
