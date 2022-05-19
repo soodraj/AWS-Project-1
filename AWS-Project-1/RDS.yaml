@@ -1,0 +1,82 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Creating AWS RDS Aurora PostgresSQL-compatible resource.
+
+Parameters:
+  InstanceName:
+    Type: String
+    Description: Specify the RDS Instance Name.
+  Tiers:
+    Type: String
+    Description: Specify the RDS Tiers
+  DBSubnet:
+    Type: String
+    Description: Specify the DB Subnet id
+  VpcSecurityGroup:
+    Type: String
+    Description: Specify the VpcSecurityGroup id
+  InstanceClass:
+    Type: String
+    Description: Specify the RDS Instance Class/Size
+    Default: db.t3.medium
+  Username:
+    Type: String
+    Description: RDS Instance admin username.
+    AllowedPattern: ^[a-zA-Z0-9]*$
+  Password:
+    Type: String
+    Description: RDS Instance admin password.
+    AllowedPattern: ^[a-zA-Z0-9]*$
+  AutoMinorUpgrade:
+    Type: String
+    AllowedValues: ['true', 'false']
+    Description: Automatically apply minor version upgrade
+    Default: 'false'
+
+  BackupRetention:
+    Type: Number
+    MinValue: 7
+    MaxValue: 30
+    Description: Number of days to retain backups
+    Default: 7
+  Department:
+    Type: String
+
+Resources:
+
+  RDSDBClusterParameterGroup:
+    Properties:
+      Description: "Aurora Cluster Parameter Group"
+      Family: aurora5.6
+      Parameters:
+        time_zone: US/Eastern
+    Type: "AWS::RDS::DBClusterParameterGroup"
+
+  DatabaseCluster:
+    Type: AWS::RDS::DBCluster
+    DeletionPolicy: Snapshot
+    Properties:
+      DBClusterIdentifier: !Sub '${InstanceName}-${Tiers}'
+      Engine: 'aurora-postgresql'
+      EngineVersion: '11.9'
+      StorageEncrypted: true
+      MasterUsername: !Ref Username
+      MasterUserPassword: !Ref Password
+      BackupRetentionPeriod: !Ref BackupRetention
+      PreferredBackupWindow: 00:00-01:00
+      PreferredMaintenanceWindow: sun:01:00-sun:02:00
+      DBSubnetGroupName: !Ref DBSubnet
+      VpcSecurityGroupIds: !Ref VpcSecurityGroup
+      Port: 5432
+      DBClusterParameterGroupName: !Ref RDSDBClusterParameterGroup
+
+  DatabasePrimaryInstance:
+    Type: AWS::RDS::DBInstance
+    Properties:
+      DBInstanceIdentifier: !Sub '${InstanceName}-${Tiers}'
+      Engine: 'aurora-postgresql'
+      EngineVersion: '11.9'
+      DBClusterIdentifier: !Ref "DatabaseCluster"
+      DBInstanceClass: !Ref InstanceClass
+      DBSubnetGroupName: !Ref DBSubnet
+      DBParameterGroupName: !Ref RDSDBClusterParameterGroup
+      AutoMinorVersionUpgrade: !Ref AutoMinorUpgrade

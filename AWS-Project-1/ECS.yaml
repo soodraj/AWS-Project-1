@@ -1,0 +1,219 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: ECS cluster with Fargate Service
+
+
+Parameters:
+  deptshortname:
+    Type: String
+  tiers:
+    Type: String
+  vpc:
+    Type: String
+  subnet1:
+    Type: String
+  subnet2:
+    Type: String
+  subnet3:
+    Type: String
+  appname:
+    Type: String
+  clusterName:
+    Type: String
+  memory:
+    Type: Number
+  cpu:
+    Type: Number
+  desiredCount:
+    Type: String
+  port:
+    Description: port that assigned to the service
+    Type: String
+
+Resources:
+  ECSCluster:
+    Type: AWS::ECS::Cluster
+    Properties:
+      ClusterName: !Sub ${clusterName}
+      CapacityProviders:
+      - FARGATE
+
+  Service:
+    Type: AWS::ECS::Service
+    DependsOn: ListenerHTTPS
+    Properties:
+      ServiceName: !Sub ${appname}-${tiers}
+      Cluster:
+      - !Ref clusterName
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: DISABLED
+          Subnets:
+            - !Ref subnet1
+            - !Ref subnet2
+            - !Ref subnet3
+          SecurityGroups:
+            - !Ref ContainerSecurityGroup
+
+      TaskDefinition:
+        - !Ref TaskDefinition
+
+  albsecuritygroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow http to client host
+      VpcId:
+        - !Ref vpc
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 10.0.0.0/20
+      SecurityGroupEgress:
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+
+  alb:
+    Type: "AWS::ElasticLoadBalancingV2::LoadBalancer"
+    Properties:
+      Name: !Sub ${appname}-${tiers}
+      Scheme: "internal"
+      SecurityGroups:
+        - !Ref albsecuritygroup
+      Subnets:
+        - !Ref subnet1
+        - !Ref subnet2
+        - !Ref subnet3
+      IpAddressType: "ipv4"
+      Type: "application"
+
+  TargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      HealthCheckIntervalSeconds: 10
+      HealthCheckPath: /health
+      HealthCheckTimeoutSeconds: 5
+      UnhealthyThresholdCount: 2
+      HealthyThresholdCount: 2
+      HealthCheckPort: 1234
+      Name: !Sub ${deptshortname}-${tiers}-${appname}-tg
+      Port: 1234
+      Protocol: HTTPS
+      TargetGroupAttributes:
+        - Key: deregistration_delay.timeout_seconds
+          Value: '30'
+      TargetType: ip
+      VpcId:
+        - !Ref vpc
+
+  ListenerHTTPS:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      DefaultActions:
+        - TargetGroupArn: !Ref TargetGroup
+          Type: forward
+      LoadBalancerArn: !Ref alb
+      Port: 443
+      Protocol: HTTPS
+      SslPolicy: ELBSecurityPolicy-TLS-1-2-2017-01
+
+  ContainerSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: !Sub ${deptshortname}-${tiers}-${appname}-sg
+      VpcId:
+        - !Ref vpc
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 1234
+          ToPort: 1234
+          SourceSecurityGroupId:
+            - !Ref albsecuritygroup
+
+  TaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: !Sub ${appname}-${tiers}
+      RequiresCompatibilities:
+        - FARGATE
+      NetworkMode: awsvpc
+      ExecutionRoleArn: !GetAtt ExecutionRole.Arn
+      TaskRoleArn: !Ref TaskRole
+      Memory: !Ref memory
+      Cpu: !Ref cpu
+      ContainerDefinitions:
+        - Name: !Sub ${appname}-${tiers}
+          Image: !Sub ${AWS::AccountId}.dkr.ecr.eu-west-1.amazonaws.com/${appname}-${tiers}:latest
+          PortMappings:
+            - ContainerPort: 1234
+              Protocol: tcp
+
+  ExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub ${appname}-${tiers}-ExecutionRole
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: 'sts:AssumeRole'
+
+
+  TaskRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub ${appname}-${tiers}-role
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: 'sts:AssumeRole'
+      Policies:
+        -
+          PolicyName: "ecstaskpolicy"
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+            - Sid: "basicpolicy"
+              Effect: "Allow"
+              Action:
+                - sts:GetSessionToken
+              Resource: "*"
+
+
+  LogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub ${appname}-${tiers}
+      RetentionInDays: 90
+
+  ECR:
+    Type: "AWS::ECR::Repository"
+    Properties:
+      RepositoryName: !Sub ${appname}-${tiers}
+      ImageScanningConfiguration:
+        ScanOnPush: "true"
+      LifecyclePolicy:
+        LifecyclePolicyText: |
+          {
+            "rules": [
+            {
+              "rulePriority": 1,
+              "description": "Only keep 5 images",
+              "selection": {
+                "tagStatus": "untagged",
+                "countType": "imageCountMoreThan",
+                "countNumber": 5
+              },
+              "action": { "type": "expire" }
+            }]
+          }
+Outputs:
+  albname:
+    Value: !GetAtt alb.DNSName
+    Description: alb Name
